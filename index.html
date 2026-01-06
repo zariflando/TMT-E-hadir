@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="UTF-8">
+<title>Sistem Kehadiran MRSM PRO</title>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body{font-family:Segoe UI,Arial;padding:20px;background:#eef2f7}
+.hidden{display:none}
+input,select,button{margin:4px;padding:6px}
+button{cursor:pointer}
+table{border-collapse:collapse;width:100%;background:#fff;margin-top:10px}
+th,td{border:1px solid #ccc;padding:8px;text-align:center}
+th{background:#eee}
+.status-hadir{color:green;font-weight:bold}
+.status-sickbay{color:orange;font-weight:bold}
+.status-pb{color:blue;font-weight:bold}
+.status-pindah{color:red;font-weight:bold}
+.card{background:#fff;padding:15px;border-radius:8px;margin-bottom:15px;box-shadow:0 2px 6px rgba(0,0,0,.1);}
+</style>
+</head>
+<body>
+
+<h2>Sistem Kehadiran MRSM PRO + Dashboard</h2>
+
+<!-- LOGIN -->
+<div id="loginDiv" class="card">
+<input id="email" type="email" placeholder="Email">
+<input id="password" type="password" placeholder="Password">
+<button onclick="login()">Login</button>
+<p><small>Gunakan email & password Firebase Auth</small></p>
+</div>
+
+<!-- SISTEM -->
+<div id="systemDiv" class="hidden">
+
+<div class="card">
+Tarikh: <input type="date" id="tarikh">
+Kelas: <input id="kelas" placeholder="Contoh: 4 Sains">
+Nama Pelajar: <input id="nama" placeholder="Tambah pelajar baru">
+<button onclick="addStudent()">Tambah</button>
+<button onclick="exportCSV()">Export CSV</button>
+<button onclick="logout()">Logout</button>
+</div>
+
+<div class="card">
+<h3>Dashboard Kehadiran</h3>
+<canvas id="pieChart" width="400" height="200"></canvas>
+<canvas id="barChart" width="400" height="200"></canvas>
+</div>
+
+<table class="card">
+<thead>
+<tr><th>Nama</th><th>Status</th><th>Tindakan</th></tr>
+</thead>
+<tbody id="list"></tbody>
+</table>
+
+<!-- Firebase Modular SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-app.js";
+import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-analytics.js";
+import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-auth.js";
+import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, query, where, getDocs } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-firestore.js";
+
+// 🔑 Firebase Config – Ganti dengan config anda
+const firebaseConfig = {
+  apiKey: "AIzaSyDL42qvEHnGz8QZjooMfU9fy0GnF6Mdxec",
+  authDomain: "tmt-attendance-system.firebaseapp.com",
+  projectId: "tmt-attendance-system",
+  storageBucket: "tmt-attendance-system.firebasestorage.app",
+  messagingSenderId: "1063374911912",
+  appId: "1:1063374911912:web:1f50e8b9b7f116cda3c59d",
+  measurementId: "G-VH2Y0S9KV1"
+};
+
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// ✅ Login
+async function login(){
+  try{
+    await signInWithEmailAndPassword(auth, email.value, password.value);
+    loginDiv.classList.add("hidden");
+    systemDiv.classList.remove("hidden");
+    loadData();
+  }catch(e){alert(e.message);}
+}
+
+// ✅ Logout
+function logout(){
+  signOut(auth);
+  location.reload();
+}
+
+// ✅ Tambah Pelajar
+async function addStudent(){
+  if(!nama.value) return;
+  await addDoc(collection(db, "kehadiran"), {
+    tarikh: tarikh.value,
+    kelas: kelas.value,
+    nama: nama.value,
+    status: "Hadir"
+  });
+  nama.value = "";
+}
+
+// ✅ Update Status
+async function updateStatus(id, status){
+  const docRef = doc(db, "kehadiran", id);
+  await updateDoc(docRef, {status: status});
+}
+
+// ✅ Load Data Realtime
+let pieChart, barChart;
+function loadData(){
+  const q = query(collection(db, "kehadiran"), where("tarikh","==",tarikh.value), where("kelas","==",kelas.value));
+  onSnapshot(q, (snapshot)=>{
+    let html = "";
+    let stats = {Hadir:0,"Sick Bay":0,"Sakit (PB)":0,Pindah:0};
+    snapshot.forEach((d)=>{
+      const data = d.data();
+      stats[data.status]++;
+      html += `<tr>
+        <td>${data.nama}</td>
+        <td class="${statusClass(data.status)}">${data.status}</td>
+        <td>
+          <button onclick="updateStatus('${d.id}','Hadir')">H</button>
+          <button onclick="updateStatus('${d.id}','Sick Bay')">S</button>
+          <button onclick="updateStatus('${d.id}','Sakit (PB)')">PB</button>
+          <button onclick="updateStatus('${d.id}','Pindah')">X</button>
+        </td>
+      </tr>`;
+    });
+    list.innerHTML = html;
+    updateCharts(stats);
+  });
+}
+
+// ✅ Warna Status
+function statusClass(s){
+  if(s==="Hadir") return "status-hadir";
+  if(s==="Sick Bay") return "status-sickbay";
+  if(s==="Sakit (PB)") return "status-pb";
+  if(s==="Pindah") return "status-pindah";
+}
+
+// ✅ Update Dashboard Charts
+function updateCharts(stats){
+  const pieData = {
+    labels: ["Hadir","Sick Bay","Sakit (PB)","Pindah"],
+    datasets:[{data:[stats.Hadir,stats["Sick Bay"],stats["Sakit (PB)"],stats.Pindah],backgroundColor:["green","orange","blue","red"]}]
+  };
+  if(pieChart) pieChart.destroy();
+  pieChart = new Chart(document.getElementById("pieChart"),{type:"pie",data:pieData});
+
+  const barData = {
+    labels:["Hadir","Sick Bay","PB","Pindah"],
+    datasets:[{label:"Bilangan Pelajar",data:[stats.Hadir,stats["Sick Bay"],stats["Sakit (PB)"],stats.Pindah],backgroundColor:["green","orange","blue","red"]}]
+  };
+  if(barChart) barChart.destroy();
+  barChart = new Chart(document.getElementById("barChart"),{type:"bar",data:barData,options:{responsive:true}});
+}
+
+// ✅ Export CSV
+async function exportCSV(){
+  const q = query(collection(db, "kehadiran"), where("tarikh","==",tarikh.value), where("kelas","==",kelas.value));
+  const snapshot = await getDocs(q);
+  let csv="Tarikh,Kelas,Nama,Status\n";
+  snapshot.forEach(d=>{
+    const data=d.data();
+    csv += `${data.tarikh},${data.kelas},${data.nama},${data.status}\n`;
+  });
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download=`kehadiran_${tarikh.value}_${kelas.value}.csv`;
+  a.click();
+}
+</script>
+
+</body>
+</html>
